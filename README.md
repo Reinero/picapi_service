@@ -9,7 +9,8 @@
 - 将 `docker-compose.example` 复制为你的 `docker-compose.yml`
 - 按需修改挂载目录（图库目录到容器内 `/data/gallery`）
 - 启动：
-
+#首次部署需要创建网络
+#docker network create astrbot_network
 ```bash
 docker compose up -d --build
 ```
