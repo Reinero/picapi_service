@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from config import ALLOWED_SUFFIXES, GALLERY_DIR, PICK_BIAS, PICK_BIAS_ALPHA, RECURSIVE, STATIC_PREFIX
 from infra.db import db
 from infra.metadata import extract_subjects
+from services.metadata_store import get_metadata_store
 
 FTS_TABLE = "images_fts"
 _progress = {"phase": "idle", "total": 0, "done": 0, "started": 0, "updated": 0}
@@ -84,6 +85,20 @@ def ensure_image_record(rel: str, category: Optional[str]) -> str:
             (iid, rel, category, Path(rel).name, ts),
         )
         conn.commit()
+    # Keep metadata store in sync for transparent multi-backend usage.
+    try:
+        get_metadata_store().insert(
+            {
+                "external_id": rel,
+                "file_path": rel,
+                "tags": [],
+                "source": category or "gallery",
+                "created_at": ts,
+            }
+        )
+    except Exception:
+        # Do not fail main path when secondary metadata store is unavailable.
+        pass
     return iid
 
 
@@ -177,6 +192,21 @@ def reindex(purge_missing: bool) -> dict:
                     conn.execute(f"DELETE FROM images WHERE relpath IN ({','.join('?'*len(chunk))})", tuple(chunk))
                 purged = len(missing)
         conn.commit()
+    try:
+        store = get_metadata_store()
+        metadata_rows = [
+            {
+                "external_id": rel,
+                "file_path": rel,
+                "tags": [],
+                "source": (rel.split("/", 1)[0] if "/" in rel else "gallery"),
+                "created_at": int(time.time()),
+            }
+            for rel in all_relpaths
+        ]
+        store.batch_insert(metadata_rows)
+    except Exception:
+        pass
     return {"indexed": len(all_relpaths), "purged": purged}
 
 

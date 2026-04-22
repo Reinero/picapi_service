@@ -19,8 +19,11 @@ from services.gallery_service import (
     sync_subjects,
 )
 from services.rating_service import rate_image
+from services.faiss_search import FaissSearchService
+from services.search import resolve_search_hits_with_scores
 
 router = APIRouter()
+_faiss_search = FaissSearchService()
 
 
 @router.get("/health")
@@ -78,8 +81,21 @@ def sync_subjects_route(limit: int = 0):
 @router.get("/search", response_model=SearchOut)
 def search(q: str = Query(...), limit: int = 10):
     st = time.perf_counter()
-    items = search_candidates(q, limit)
-    return {"q": q, "mode": "fts_or_like", "latency_ms": int((time.perf_counter() - st) * 1000), "items": items}
+    mode = "fts_or_like"
+    items: list[dict] = []
+    try:
+        faiss_hits = _faiss_search.search_with_scores(query=q, top_k=limit)
+        if faiss_hits:
+            items = resolve_search_hits_with_scores(faiss_hits)
+            if items:
+                mode = "faiss_metadata"
+    except Exception:
+        items = []
+
+    if not items:
+        items = search_candidates(q, limit)
+
+    return {"q": q, "mode": mode, "latency_ms": int((time.perf_counter() - st) * 1000), "items": items}
 
 
 @router.get("/admin/sync_progress")
