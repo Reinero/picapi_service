@@ -6,13 +6,24 @@ from config import GALLERY_DIR, WRITE_META_MIN_COUNT
 from infra.db import db
 from infra.metadata import write_metadata
 from services.gallery_service import file_id_for
+from services.metadata_store import get_metadata_store
 
 
 def rate_image(ident: str, score: float, note: str | None) -> dict:
+    # Resolve either external string id or BIGINT-compatible id via MetadataStore.
+    resolved = {}
+    try:
+        resolved = get_metadata_store().get_by_id(ident)
+    except Exception:
+        resolved = {}
+    resolved_path = resolved.get("file_path")
+
     with db() as conn:
         row = conn.execute("SELECT id, relpath, cnt, avg FROM images WHERE id=?", (ident,)).fetchone()
         if not row:
             row = conn.execute("SELECT id, relpath, cnt, avg FROM images WHERE relpath=?", (ident,)).fetchone()
+        if not row and resolved_path:
+            row = conn.execute("SELECT id, relpath, cnt, avg FROM images WHERE relpath=?", (resolved_path,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="image id not found")
         db_id = row["id"]
